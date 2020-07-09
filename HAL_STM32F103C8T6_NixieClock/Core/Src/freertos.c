@@ -26,6 +26,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */     
+#include "DS3231.h"
+#include "i2c.h"
 
 /* USER CODE END Includes */
 
@@ -51,18 +53,31 @@ uint8_t hours = 0;
 uint8_t minutes = 0;
 uint8_t seconds = 0;
 
+_RTC rtc = {
+    .Year = 0, .Month = 8, .Date = 6,
+    .DaysOfWeek = SUNDAY,
+    .Hour = 12, .Min = 34, .Sec = 0
+};
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityBelowNormal,
   .stack_size = 128 * 4
 };
 /* Definitions for ButtonsTask */
 osThreadId_t ButtonsTaskHandle;
 const osThreadAttr_t ButtonsTask_attributes = {
   .name = "ButtonsTask",
+  .priority = (osPriority_t) osPriorityLow,
+  .stack_size = 128 * 4
+};
+/* Definitions for RTC_ReadTask */
+osThreadId_t RTC_ReadTaskHandle;
+const osThreadAttr_t RTC_ReadTask_attributes = {
+  .name = "RTC_ReadTask",
   .priority = (osPriority_t) osPriorityLow,
   .stack_size = 128 * 4
 };
@@ -104,6 +119,7 @@ const osSemaphoreAttr_t M_MINUS_Semaphore_attributes = {
 
 void StartDefaultTask(void *argument);
 void Start_ButtonsTask(void *argument);
+void start_RTC_ReadTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -159,6 +175,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of ButtonsTask */
   ButtonsTaskHandle = osThreadNew(Start_ButtonsTask, NULL, &ButtonsTask_attributes);
 
+  /* creation of RTC_ReadTask */
+  RTC_ReadTaskHandle = osThreadNew(start_RTC_ReadTask, NULL, &RTC_ReadTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -192,48 +211,85 @@ void StartDefaultTask(void *argument)
 /* USER CODE END Header_Start_ButtonsTask */
 void Start_ButtonsTask(void *argument)
 {
-	/* USER CODE BEGIN Start_ButtonsTask */
-	/* Infinite loop */
-
+  /* USER CODE BEGIN Start_ButtonsTask */
 
 	uint8_t button_pressed = 0;
 
+	/* Infinite loop */
 	for (;;)
 	{
 		button_pressed = osSemaphoreAcquire(H_PLUS_SemaphoreHandle, 20);
 		if(button_pressed == osOK)
 		{
-			//HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			hours++;
+			rtc.Hour++;
+			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
+			DS3231_SetTime(&rtc);
+			osSemaphoreRelease(I2C_MutexHandle);
 			osSemaphoreRelease(SharedMemoryMutexHandle);
 		}
 		button_pressed = osSemaphoreAcquire(H_MINUS_SemaphoreHandle, 20);
 		if(button_pressed == osOK)
 		{
-			//HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			hours--;
+			rtc.Hour--;
+			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
+			DS3231_SetTime(&rtc);
+			osSemaphoreRelease(I2C_MutexHandle);
 			osSemaphoreRelease(SharedMemoryMutexHandle);
 		}
 		button_pressed = osSemaphoreAcquire(M_PLUS_SemaphoreHandle, 20);
 		if(button_pressed == osOK)
 		{
-			//HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			minutes++;
+			rtc.Min++;
+			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
+			DS3231_SetTime(&rtc);
+			osSemaphoreRelease(I2C_MutexHandle);
 			osSemaphoreRelease(SharedMemoryMutexHandle);
 		}
 		button_pressed = osSemaphoreAcquire(M_MINUS_SemaphoreHandle, 20);
 		if(button_pressed == osOK)
 		{
-			//HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			minutes--;
+			rtc.Min--;
+			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
+			DS3231_SetTime(&rtc);
+			osSemaphoreRelease(I2C_MutexHandle);
 			osSemaphoreRelease(SharedMemoryMutexHandle);
 		}
 	}
-	/* USER CODE END Start_ButtonsTask */
+  /* USER CODE END Start_ButtonsTask */
+}
+
+/* USER CODE BEGIN Header_start_RTC_ReadTask */
+/**
+* @brief Function implementing the RTC_ReadTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_start_RTC_ReadTask */
+void start_RTC_ReadTask(void *argument)
+{
+  /* USER CODE BEGIN start_RTC_ReadTask */
+
+	osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
+	DS3231_Init(&hi2c2);
+	//DS3231_SetTime(&rtc);
+	WriteRegister(DS3231_REG_CONTROL, 0b01000000);   //set SQW output of RTC to 1Hz frequency
+	osSemaphoreRelease(I2C_MutexHandle);
+
+	/* Infinite loop */
+	for (;;)
+	{
+		osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
+		osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
+		DS3231_GetTime(&rtc);
+		osSemaphoreRelease(SharedMemoryMutexHandle);
+		osSemaphoreRelease(I2C_MutexHandle);
+		osDelay(100);
+	}
+  /* USER CODE END start_RTC_ReadTask */
 }
 
 /* Private application code --------------------------------------------------*/
@@ -242,7 +298,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == SQW_Pin)
 	{
-		HAL_GPIO_TogglePin(L5_GPIO_Port, L5_Pin);
+		HAL_GPIO_TogglePin(L3_GPIO_Port, L3_Pin);  //toggle state of neon lamp
 		return;
 	}
 	if (GPIO_Pin == H_PLUS_Pin)
