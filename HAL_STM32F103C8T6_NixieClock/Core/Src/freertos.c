@@ -49,10 +49,6 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
-uint8_t hours = 0;
-uint8_t minutes = 0;
-uint8_t seconds = 0;
-
 _RTC rtc = {
     .Year = 0, .Month = 8, .Date = 6,
     .DaysOfWeek = SUNDAY,
@@ -71,14 +67,21 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t ButtonsTaskHandle;
 const osThreadAttr_t ButtonsTask_attributes = {
   .name = "ButtonsTask",
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 128 * 4
 };
 /* Definitions for RTC_ReadTask */
 osThreadId_t RTC_ReadTaskHandle;
 const osThreadAttr_t RTC_ReadTask_attributes = {
   .name = "RTC_ReadTask",
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 128 * 4
+};
+/* Definitions for DisplayTask */
+osThreadId_t DisplayTaskHandle;
+const osThreadAttr_t DisplayTask_attributes = {
+  .name = "DisplayTask",
+  .priority = (osPriority_t) osPriorityBelowNormal7,
   .stack_size = 128 * 4
 };
 /* Definitions for SharedMemoryMutex */
@@ -91,25 +94,10 @@ osMutexId_t I2C_MutexHandle;
 const osMutexAttr_t I2C_Mutex_attributes = {
   .name = "I2C_Mutex"
 };
-/* Definitions for H_PLUS_Semaphore */
-osSemaphoreId_t H_PLUS_SemaphoreHandle;
-const osSemaphoreAttr_t H_PLUS_Semaphore_attributes = {
-  .name = "H_PLUS_Semaphore"
-};
-/* Definitions for H_MINUS_Semaphore */
-osSemaphoreId_t H_MINUS_SemaphoreHandle;
-const osSemaphoreAttr_t H_MINUS_Semaphore_attributes = {
-  .name = "H_MINUS_Semaphore"
-};
-/* Definitions for M_PLUS_Semaphore */
-osSemaphoreId_t M_PLUS_SemaphoreHandle;
-const osSemaphoreAttr_t M_PLUS_Semaphore_attributes = {
-  .name = "M_PLUS_Semaphore"
-};
-/* Definitions for M_MINUS_Semaphore */
-osSemaphoreId_t M_MINUS_SemaphoreHandle;
-const osSemaphoreAttr_t M_MINUS_Semaphore_attributes = {
-  .name = "M_MINUS_Semaphore"
+/* Definitions for ButtonsSemaphore */
+osSemaphoreId_t ButtonsSemaphoreHandle;
+const osSemaphoreAttr_t ButtonsSemaphore_attributes = {
+  .name = "ButtonsSemaphore"
 };
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,6 +108,7 @@ const osSemaphoreAttr_t M_MINUS_Semaphore_attributes = {
 void StartDefaultTask(void *argument);
 void Start_ButtonsTask(void *argument);
 void start_RTC_ReadTask(void *argument);
+void StartDisplayTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -144,17 +133,8 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_MUTEX */
 
   /* Create the semaphores(s) */
-  /* creation of H_PLUS_Semaphore */
-  H_PLUS_SemaphoreHandle = osSemaphoreNew(1, 1, &H_PLUS_Semaphore_attributes);
-
-  /* creation of H_MINUS_Semaphore */
-  H_MINUS_SemaphoreHandle = osSemaphoreNew(1, 1, &H_MINUS_Semaphore_attributes);
-
-  /* creation of M_PLUS_Semaphore */
-  M_PLUS_SemaphoreHandle = osSemaphoreNew(1, 1, &M_PLUS_Semaphore_attributes);
-
-  /* creation of M_MINUS_Semaphore */
-  M_MINUS_SemaphoreHandle = osSemaphoreNew(1, 1, &M_MINUS_Semaphore_attributes);
+  /* creation of ButtonsSemaphore */
+  ButtonsSemaphoreHandle = osSemaphoreNew(1, 1, &ButtonsSemaphore_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -177,6 +157,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of RTC_ReadTask */
   RTC_ReadTaskHandle = osThreadNew(start_RTC_ReadTask, NULL, &RTC_ReadTask_attributes);
+
+  /* creation of DisplayTask */
+  DisplayTaskHandle = osThreadNew(StartDisplayTask, NULL, &DisplayTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -211,48 +194,96 @@ void StartDefaultTask(void *argument)
 /* USER CODE END Header_Start_ButtonsTask */
 void Start_ButtonsTask(void *argument)
 {
-  /* USER CODE BEGIN Start_ButtonsTask */
-
-	uint8_t button_pressed = 0;
+	/* USER CODE BEGIN Start_ButtonsTask */
 
 	/* Infinite loop */
 	for (;;)
 	{
-		button_pressed = osSemaphoreAcquire(H_PLUS_SemaphoreHandle, 20);
-		if(button_pressed == osOK)
+		osSemaphoreAcquire(ButtonsSemaphoreHandle, osWaitForever);
+		osDelay(50);
+
+		if(HAL_GPIO_ReadPin(H_PLUS_GPIO_Port, H_PLUS_Pin))
 		{
+			osDelay(50);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			rtc.Hour++;
+			if(rtc.Hour + 1 > 23)
+			{
+				rtc.Hour = 0;
+			}
+			else
+			{
+				rtc.Hour++;
+			}
 			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
 			DS3231_SetTime(&rtc);
 			osSemaphoreRelease(I2C_MutexHandle);
 			osSemaphoreRelease(SharedMemoryMutexHandle);
 		}
-		button_pressed = osSemaphoreAcquire(H_MINUS_SemaphoreHandle, 20);
-		if(button_pressed == osOK)
+
+		if(HAL_GPIO_ReadPin(H_MINUS_GPIO_Port, H_MINUS_Pin))
 		{
+			osDelay(50);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			rtc.Hour--;
+			if(rtc.Hour - 1 < 0)
+			{
+				rtc.Hour = 23;
+			}
+			else
+			{
+				rtc.Hour--;
+			}
 			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
 			DS3231_SetTime(&rtc);
 			osSemaphoreRelease(I2C_MutexHandle);
 			osSemaphoreRelease(SharedMemoryMutexHandle);
 		}
-		button_pressed = osSemaphoreAcquire(M_PLUS_SemaphoreHandle, 20);
-		if(button_pressed == osOK)
+
+		if(HAL_GPIO_ReadPin(M_PLUS_GPIO_Port, M_PLUS_Pin))
 		{
+			osDelay(50);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			rtc.Min++;
+			if(rtc.Min + 1 > 59)
+			{
+				rtc.Min = 0;
+				if(rtc.Hour + 1 > 23)
+				{
+					rtc.Hour = 0;
+				}
+				else
+				{
+					rtc.Hour++;
+				}
+			}
+			else
+			{
+				rtc.Min++;
+			}
 			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
 			DS3231_SetTime(&rtc);
 			osSemaphoreRelease(I2C_MutexHandle);
 			osSemaphoreRelease(SharedMemoryMutexHandle);
 		}
-		button_pressed = osSemaphoreAcquire(M_MINUS_SemaphoreHandle, 20);
-		if(button_pressed == osOK)
+
+		if(HAL_GPIO_ReadPin(M_MINUS_GPIO_Port, M_MINUS_Pin))
 		{
+			osDelay(50);
 			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-			rtc.Min--;
+			if(rtc.Min - 1 < 0)
+			{
+				rtc.Min = 59;
+				if(rtc.Hour - 1 < 0)
+				{
+					rtc.Hour = 23;
+				}
+				else
+				{
+					rtc.Hour--;
+				}
+			}
+			else
+			{
+				rtc.Min--;
+			}
 			osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
 			DS3231_SetTime(&rtc);
 			osSemaphoreRelease(I2C_MutexHandle);
@@ -292,6 +323,172 @@ void start_RTC_ReadTask(void *argument)
   /* USER CODE END start_RTC_ReadTask */
 }
 
+/* USER CODE BEGIN Header_StartDisplayTask */
+/**
+* @brief Function implementing the DisplayTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartDisplayTask */
+void StartDisplayTask(void *argument)
+{
+  /* USER CODE BEGIN StartDisplayTask */
+	uint8_t hours_10, hours_1, minutes_10, minutes_1;
+	/* Infinite loop */
+	for (;;)
+	{
+		osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
+		hours_10 = rtc.Hour / 10;
+		hours_1 = rtc.Hour % 10;
+		minutes_10 = rtc.Min / 10;
+		minutes_1 = rtc.Min % 10;
+		osSemaphoreRelease(SharedMemoryMutexHandle);
+
+		//Multiplexing nixie tubes
+
+		// Decimal digit of hours - 1st tube
+		HAL_GPIO_WritePin(L1_GPIO_Port, L1_Pin, 1);
+		HAL_GPIO_WritePin(L2_GPIO_Port, L2_Pin, 0);
+		HAL_GPIO_WritePin(L4_GPIO_Port, L4_Pin, 0);
+		HAL_GPIO_WritePin(L5_GPIO_Port, L5_Pin, 0);
+
+		HAL_GPIO_WritePin(N0_GPIO_Port, N0_Pin, 0);
+		HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 0);
+		HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 0);
+		HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 0);
+		HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 0);
+		HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 0);
+		HAL_GPIO_WritePin(N6_GPIO_Port, N6_Pin, 0);
+		HAL_GPIO_WritePin(N7_GPIO_Port, N7_Pin, 0);
+		HAL_GPIO_WritePin(N8_GPIO_Port, N8_Pin, 0);
+		HAL_GPIO_WritePin(N9_GPIO_Port, N9_Pin, 0);
+
+		if (hours_10 == 1)
+			HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 1);
+		else if (hours_10 == 2)
+			HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 1);
+		osDelay(4);
+
+		// Single digit of hours - 2nd tube
+		HAL_GPIO_WritePin(L1_GPIO_Port, L1_Pin, 0);
+		HAL_GPIO_WritePin(L2_GPIO_Port, L2_Pin, 1);
+		HAL_GPIO_WritePin(L4_GPIO_Port, L4_Pin, 0);
+		HAL_GPIO_WritePin(L5_GPIO_Port, L5_Pin, 0);
+
+		HAL_GPIO_WritePin(N0_GPIO_Port, N0_Pin, 0);
+		HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 0);
+		HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 0);
+		HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 0);
+		HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 0);
+		HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 0);
+		HAL_GPIO_WritePin(N6_GPIO_Port, N6_Pin, 0);
+		HAL_GPIO_WritePin(N7_GPIO_Port, N7_Pin, 0);
+		HAL_GPIO_WritePin(N8_GPIO_Port, N8_Pin, 0);
+		HAL_GPIO_WritePin(N9_GPIO_Port, N9_Pin, 0);
+
+		if (hours_1 == 0)
+			HAL_GPIO_WritePin(N0_GPIO_Port, N0_Pin, 1);
+		else if (hours_1 == 1)
+			HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 1);
+		else if (hours_1 == 2)
+			HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 1);
+		else if (hours_1 == 3)
+			HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 1);
+		else if (hours_1 == 4)
+			HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 1);
+		else if (hours_1 == 5)
+			HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 1);
+		else if (hours_1 == 6)
+			HAL_GPIO_WritePin(N6_GPIO_Port, N6_Pin, 1);
+		else if (hours_1 == 7)
+			HAL_GPIO_WritePin(N7_GPIO_Port, N7_Pin, 1);
+		else if (hours_1 == 8)
+			HAL_GPIO_WritePin(N8_GPIO_Port, N8_Pin, 1);
+		else if (hours_1 == 9)
+			HAL_GPIO_WritePin(N9_GPIO_Port, N9_Pin, 1);
+		osDelay(4);
+
+		// Decimal digit of minutes - 4th tube  (3th is neon lamp in a middle)
+		HAL_GPIO_WritePin(L1_GPIO_Port, L1_Pin, 0);
+		HAL_GPIO_WritePin(L2_GPIO_Port, L2_Pin, 0);
+		HAL_GPIO_WritePin(L4_GPIO_Port, L4_Pin, 1);
+		HAL_GPIO_WritePin(L5_GPIO_Port, L5_Pin, 0);
+
+		HAL_GPIO_WritePin(N0_GPIO_Port, N0_Pin, 0);
+		HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 0);
+		HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 0);
+		HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 0);
+		HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 0);
+		HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 0);
+		HAL_GPIO_WritePin(N6_GPIO_Port, N6_Pin, 0);
+		HAL_GPIO_WritePin(N7_GPIO_Port, N7_Pin, 0);
+		HAL_GPIO_WritePin(N8_GPIO_Port, N8_Pin, 0);
+		HAL_GPIO_WritePin(N9_GPIO_Port, N9_Pin, 0);
+
+		if (minutes_10 == 0)
+			HAL_GPIO_WritePin(N0_GPIO_Port, N0_Pin, 1);
+		else if (minutes_10 == 1)
+			HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 1);
+		else if (minutes_10 == 2)
+			HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 1);
+		else if (minutes_10 == 3)
+			HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 1);
+		else if (minutes_10 == 4)
+			HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 1);
+		else if (minutes_10 == 5)
+			HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 1);
+		else if (minutes_10 == 6)
+			HAL_GPIO_WritePin(N6_GPIO_Port, N6_Pin, 1);
+		else if (minutes_10 == 7)
+			HAL_GPIO_WritePin(N7_GPIO_Port, N7_Pin, 1);
+		else if (minutes_10 == 8)
+			HAL_GPIO_WritePin(N8_GPIO_Port, N8_Pin, 1);
+		else if (minutes_10 == 9)
+			HAL_GPIO_WritePin(N9_GPIO_Port, N9_Pin, 1);
+		osDelay(4);
+
+		// Single digit of minutes - 5th tube
+		HAL_GPIO_WritePin(L1_GPIO_Port, L1_Pin, 0);
+		HAL_GPIO_WritePin(L2_GPIO_Port, L2_Pin, 0);
+		HAL_GPIO_WritePin(L4_GPIO_Port, L4_Pin, 0);
+		HAL_GPIO_WritePin(L5_GPIO_Port, L5_Pin, 1);
+
+		HAL_GPIO_WritePin(N0_GPIO_Port, N0_Pin, 0);
+		HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 0);
+		HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 0);
+		HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 0);
+		HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 0);
+		HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 0);
+		HAL_GPIO_WritePin(N6_GPIO_Port, N6_Pin, 0);
+		HAL_GPIO_WritePin(N7_GPIO_Port, N7_Pin, 0);
+		HAL_GPIO_WritePin(N8_GPIO_Port, N8_Pin, 0);
+		HAL_GPIO_WritePin(N9_GPIO_Port, N9_Pin, 0);
+
+		if (minutes_1 == 0)
+			HAL_GPIO_WritePin(N0_GPIO_Port, N0_Pin, 1);
+		else if (minutes_1 == 1)
+			HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 1);
+		else if (minutes_1 == 2)
+			HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 1);
+		else if (minutes_1 == 3)
+			HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 1);
+		else if (minutes_1 == 4)
+			HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 1);
+		else if (minutes_1 == 5)
+			HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 1);
+		else if (minutes_1 == 6)
+			HAL_GPIO_WritePin(N6_GPIO_Port, N6_Pin, 1);
+		else if (minutes_1 == 7)
+			HAL_GPIO_WritePin(N7_GPIO_Port, N7_Pin, 1);
+		else if (minutes_1 == 8)
+			HAL_GPIO_WritePin(N8_GPIO_Port, N8_Pin, 1);
+		else if (minutes_1 == 9)
+			HAL_GPIO_WritePin(N9_GPIO_Port, N9_Pin, 1);
+		osDelay(4);
+	}
+  /* USER CODE END StartDisplayTask */
+}
+
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -301,24 +498,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		HAL_GPIO_TogglePin(L3_GPIO_Port, L3_Pin);  //toggle state of neon lamp
 		return;
 	}
-	if (GPIO_Pin == H_PLUS_Pin)
+	if (GPIO_Pin == H_PLUS_Pin || GPIO_Pin == H_MINUS_Pin || GPIO_Pin == M_PLUS_Pin || GPIO_Pin == M_MINUS_Pin)
 	{
-		osSemaphoreRelease(H_PLUS_SemaphoreHandle);
-		return;
-	}
-	if (GPIO_Pin == H_MINUS_Pin)
-	{
-		osSemaphoreRelease(H_MINUS_SemaphoreHandle);
-		return;
-	}
-	if (GPIO_Pin == M_PLUS_Pin)
-	{
-		osSemaphoreRelease(M_PLUS_SemaphoreHandle);
-		return;
-	}
-	if (GPIO_Pin == M_MINUS_Pin)
-	{
-		osSemaphoreRelease(M_MINUS_SemaphoreHandle);
+		osSemaphoreRelease(ButtonsSemaphoreHandle);
 		return;
 	}
 }
