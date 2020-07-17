@@ -1,14 +1,13 @@
 EESchema Schematic File Version 4
-LIBS:NixieClockDriver-cache
-EELAYER 29 0
+EELAYER 30 0
 EELAYER END
 $Descr A3 16535 11693
 encoding utf-8
 Sheet 1 1
-Title ""
+Title "Nixie Clock Driver"
 Date ""
-Rev ""
-Comp ""
+Rev "v1.1"
+Comp "Anvil Electronics"
 Comment1 ""
 Comment2 ""
 Comment3 ""
@@ -1366,7 +1365,7 @@ F 1 "BC557" H 4841 9205 50  0000 L CNN
 F 2 "Package_TO_SOT_THT:TO-92_Inline" H 4850 9175 50  0001 L CIN
 F 3 "http://www.fairchildsemi.com/ds/BC/BC557.pdf" H 4650 9250 50  0001 L CNN
 	1    4650 9250
-	1    0    0    -1  
+	1    0    0    1   
 $EndComp
 $Comp
 L Diode:1N4148 D1
