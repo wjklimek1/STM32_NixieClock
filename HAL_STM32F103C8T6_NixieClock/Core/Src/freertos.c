@@ -334,15 +334,40 @@ void StartDisplayTask(void *argument)
 {
   /* USER CODE BEGIN StartDisplayTask */
 	uint8_t hours_10, hours_1, minutes_10, minutes_1;
+
+	float temperature = 0;                  //variable to read temperature from DS3231
+	int temperature_int = 0;                //variable for temperature conversion
+	int temperature_display_counter = 0;    //count time while temperature is displayed
+
+	osSemaphoreAcquire(I2C_MutexHandle, osWaitForever);
+	DS3231_ReadTemperature(&temperature);                //read temperature from DS3231
+	osSemaphoreRelease(I2C_MutexHandle);
+
+	temperature_int = (int)(temperature*100);
+
+	hours_10 = temperature_int / 1000;                   //10's degrees celcius
+	hours_1 = temperature_int % 1000 /100;               //1's degrees celcius
+	minutes_10 = temperature_int % 100 /10;              //0.1's degrees celcius
+	minutes_1 =  temperature_int % 10;                   //0.01's degrees celcius
+
+
 	/* Infinite loop */
 	for (;;)
 	{
-		osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
-		hours_10 = rtc.Hour / 10;
-		hours_1 = rtc.Hour % 10;
-		minutes_10 = rtc.Min / 10;
-		minutes_1 = rtc.Min % 10;
-		osSemaphoreRelease(SharedMemoryMutexHandle);
+		if(temperature_display_counter > 400)
+		{
+			osSemaphoreAcquire(SharedMemoryMutexHandle, osWaitForever);
+			hours_10 = rtc.Hour / 10;
+			hours_1 = rtc.Hour % 10;
+			minutes_10 = rtc.Min / 10;
+			minutes_1 = rtc.Min % 10;
+			osSemaphoreRelease(SharedMemoryMutexHandle);
+		}
+		else
+		{
+			temperature_display_counter++;
+		}
+
 
 		//Multiplexing nixie tubes
 
@@ -367,6 +392,12 @@ void StartDisplayTask(void *argument)
 			HAL_GPIO_WritePin(N1_GPIO_Port, N1_Pin, 1);
 		else if (hours_10 == 2)
 			HAL_GPIO_WritePin(N2_GPIO_Port, N2_Pin, 1);
+		else if (hours_10 == 3)
+			HAL_GPIO_WritePin(N3_GPIO_Port, N3_Pin, 1);
+		else if (hours_10 == 4)
+			HAL_GPIO_WritePin(N4_GPIO_Port, N4_Pin, 1);
+		else if (hours_10 == 5)
+			HAL_GPIO_WritePin(N5_GPIO_Port, N5_Pin, 1);
 		osDelay(4);
 
 		// Single digit of hours - 2nd tube

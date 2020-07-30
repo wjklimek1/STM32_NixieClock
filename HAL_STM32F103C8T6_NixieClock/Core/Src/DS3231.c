@@ -49,6 +49,8 @@ bool DS3231_SetTime(_RTC *rtc)
 
 bool DS3231_ReadTemperature(float *temp)
 {
+  ForceConversion();
+
   uint8_t startAddr = DS3231_REG_TEMP;
   uint8_t buffer[2] = {0,};
 
@@ -152,4 +154,20 @@ static uint8_t B2D(uint8_t bcd)
 static uint8_t D2B(uint8_t decimal)
 {
   return (((decimal / 10) << 4) | (decimal % 10));
+}
+
+bool ForceConversion()
+{
+	uint8_t value;
+
+	ReadRegister(DS3231_REG_CONTROL, &value);
+
+	value |= 0b00100000;
+
+	WriteRegister(DS3231_REG_CONTROL, value);
+
+	while ((value & 0b00100000) != 0)
+	{
+		ReadRegister(DS3231_REG_CONTROL, &value);
+	}
 }

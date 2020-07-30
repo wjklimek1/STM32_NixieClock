@@ -72,5 +72,6 @@ bool DS3231_SetAlarm1(AlarmMode mode, uint8_t date, uint8_t hour, uint8_t min, u
 bool DS3231_ClearAlarm1();
 bool ReadRegister(uint8_t regAddr, uint8_t *value);
 bool WriteRegister(uint8_t regAddr, uint8_t value);
+bool ForceConversion();
 
 #endif /* DS3231_H_ */
